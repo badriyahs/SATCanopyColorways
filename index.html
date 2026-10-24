@@ -488,7 +488,7 @@ input[type="range"].plain {
       <div class="actions">
         <button type="button" class="btn primary" id="save">Save colorway</button>
         <button type="button" class="btn" id="copy">Copy hex codes</button>
-        <button type="button" class="btn" id="reset">Reset to file</button>
+        <button type="button" class="btn" id="reset">Reset to v1</button>
       </div>
       <div id="copyFallback" hidden><p class="empty">Copying isn't allowed here. Select the text below and copy it.</p><textarea class="copybox" id="copyText" readonly></textarea></div>
       <h3 class="sub-title">Canopy versions</h3>
@@ -526,14 +526,30 @@ const LINEN_PRESETS = [
   { name: "Oatmeal", color: "#BCAC92" },
   { name: "Charcoal", color: "#3A3835" },
 ];
+// v1 orange: the exported v1, used as the starting point and as what "Reset to v1" goes back to.
+// (The master file's own palette, with its magenta thread, is never used.)
+const V1_VERSION = {
+  name: "v1 orange",
+  note: "Exported v1: orange thread, taupe words, lighter taupe print, black holes and edge",
+  linen: { color: "#F1ECE4", tex: 60 },
+  labels: { lines: 2, ar: 100, lat: 109, weight: 60, fit: true, font: "canva" },
+  exportMode: "material",
+  sw: {
+    "embroider-thread": "#E08A00", "embroider-triangle-markers": "#E08A01", "cut-hole-edges": "#E08A01",
+    "embroidered-text-lettering": "#8D7D68",
+    "print-marks": "#A49786", "print-inner-grid": "#A49786", "print-outer-rings": "#A49786",
+    "print-grid-outline": "#A49786", "print-construction-squares": "#A49786",
+    "border-outline": "#000000", "cut-holes": "#000000",
+  },
+};
 const FILE_STATE = {
-  linen: { color: "#EAE3D6", tex: 55, weave: 100 },
+  linen: { ...V1_VERSION.linen, weave: 100 },
   // lines: 4 = as in the file; 2 = Arabic word + transliteration only, enlarged and spaced evenly.
-  labels: { lines: 4, ar: 120, lat: 125, weight: 20, fit: true, font: "file" },
-  exportMode: "material", // export layers: EMBROIDERED / PRINT / CUT, or "file" for the master file's layers
-  // Strays (lines and triangles left around four labels) start hidden; the eye brings them back.
+  labels: { ...V1_VERSION.labels },
+  exportMode: V1_VERSION.exportMode, // export layers: EMBROIDERED / PRINT / CUT, all embroidered, or the master file's layers
+  // Strays (lines and triangles left around four labels in the file) are always hidden and never exported.
   layers: Object.fromEntries(META.layers.map(l => [l.id, { visible: l.id !== "strays", opacity: 100 }])),
-  swatches: Object.fromEntries(META.layers.flatMap(l => l.swatches.map(s => [s.id, { color: s.orig.toUpperCase(), opacity: 100 }]))),
+  swatches: Object.fromEntries(META.layers.flatMap(l => l.swatches.map(w => [w.id, { color: V1_VERSION.sw[w.id] || "#A49786", opacity: 100, visible: true }]))),
 };
 const clone = o => JSON.parse(JSON.stringify(o));
 const $ = id => document.getElementById(id);
@@ -560,6 +576,7 @@ function normalize(s) {
   Object.assign(out.labels, s.labels || {});
   if (["file", "material", "embroidery"].includes(s.exportMode)) out.exportMode = s.exportMode;
   for (const k in out.layers) Object.assign(out.layers[k], (s.layers || {})[k] || {});
+  if (out.layers.strays) out.layers.strays.visible = false;
   const src = s.swatches || {};
   for (const k in out.swatches) Object.assign(out.swatches[k], src[k] || src[LEGACY[k]] || src[LEGACY[LEGACY[k]]] || {});
   return out;
@@ -1047,6 +1064,7 @@ function buildPanel() {
   host.innerHTML = "";
   // Panel lists layers top-to-bottom, the reverse of paint order (like Illustrator's Layers panel).
   for (const l of [...META.layers].reverse()) {
+    if (l.id === "strays") continue; // leftovers in the file: always hidden, not shown in the panel
     const el = document.createElement("div");
     el.className = "layer";
     el.innerHTML = `
@@ -1079,7 +1097,6 @@ function buildPanel() {
       colorRow(row, {
         id: sw.id,
         label: sw.label,
-        small: `was ${sw.orig.toUpperCase()}`,
         withOpacity: true,
         eye: true,
         get: () => state.swatches[sw.id],
@@ -1175,7 +1192,7 @@ function syncAll() {
 
 /* ---------- Colorways ---------- */
 function stripColors(s) {
-  return [s.linen.color, ...META.layers.slice().reverse().flatMap(l => l.swatches.map(sw => s.swatches[sw.id].color))];
+  return [s.linen.color, ...META.layers.slice().reverse().filter(l => l.id !== "strays").flatMap(l => l.swatches.map(sw => s.swatches[sw.id].color))];
 }
 // The canopy versions. Each brings back a version exactly: colors and opacities, label layout, linen,
 // and how its export splits into layers. The cloth is always linen.
@@ -1194,21 +1211,7 @@ const V2_SETUP = {
   exportMode: "embroidery",
 };
 const DESERT_WAYS = [
-  {
-    // exactly what went into SAT-canopy-v1.pdf (solid colors, as exported)
-    name: "v1 orange",
-    note: "Exported v1: orange thread, taupe words, lighter taupe print, black holes and edge",
-    linen: { color: "#F1ECE4", tex: 60 },
-    labels: { lines: 2, ar: 100, lat: 109, weight: 60, fit: true, font: "canva" },
-    exportMode: "material",
-    sw: {
-      "embroider-thread": "#E08A00", "embroider-triangle-markers": "#E08A01", "cut-hole-edges": "#E08A01",
-      "embroidered-text-lettering": "#8D7D68",
-      "print-marks": "#A49786", "print-inner-grid": "#A49786", "print-outer-rings": "#A49786",
-      "print-grid-outline": "#A49786", "print-construction-squares": "#A49786",
-      "border-outline": "#000000", "cut-holes": "#000000",
-    },
-  },
+  V1_VERSION, // exactly what went into SAT-canopy-v1.pdf (solid colors, as exported)
   {
     name: "v2 red",
     note: "Exported v2: everything embroidered in red on natural linen, black holes and edge",
@@ -1295,7 +1298,7 @@ $("reset").addEventListener("click", () => {
   const before = clone(state);
   state = clone(FILE_STATE);
   syncAll(); commit();
-  toast("Back to the file colors", () => { state = before; syncAll(); commit(); });
+  toast("Back to v1", () => { state = before; syncAll(); commit(); });
 });
 
 function hexList() {
@@ -1304,6 +1307,7 @@ function hexList() {
     (lb.lines === 2 ? `Labels  Arabic ${lb.ar}% + transliteration ${lb.lat}% only, +${(lb.weight / 100).toFixed(2)}pt weight` : "Labels  all 4 lines")
       + (lb.font === "canva" ? ", new Arabic font" : ", Arabic from file")];
   for (const l of [...META.layers].reverse()) {
+    if (l.id === "strays") continue;
     const ls = state.layers[l.id];
     for (const sw of l.swatches) {
       const v = state.swatches[sw.id];
