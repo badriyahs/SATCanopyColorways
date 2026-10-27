@@ -522,6 +522,11 @@ input[type="range"].plain {
         <button type="button" role="radio" data-mode="embroidery">All embroidered</button>
         <button type="button" role="radio" data-mode="file">Same as master file</button>
       </div>
+      <h3 class="sub-title" id="inkTitle">Embroidery in the file</h3>
+      <div class="seg" role="radiogroup" aria-labelledby="inkTitle" id="exportInk">
+        <button type="button" role="radio" data-ink="black">Black</button>
+        <button type="button" role="radio" data-ink="colorway">Colorway colors</button>
+      </div>
       <div id="partBox" hidden>
         <h3 class="sub-title" id="partTitle">Part</h3>
         <div class="seg" role="radiogroup" aria-labelledby="partTitle" id="exportPart">
@@ -1416,6 +1421,19 @@ $("sunToggle").addEventListener("click", () => {
   render();
 });
 
+/* ---------- Embroidery ink in the file ---------- */
+// Black by default (asked for 2026-10-27): white thread on a white page is unreadable in Illustrator, a PDF viewer
+// or embroidery software, so the file shows everything stitched in black. The colorway stays in the tool.
+let embInk = "black";
+function syncInk() {
+  for (const b of document.querySelectorAll("#exportInk button")) b.setAttribute("aria-checked", b.dataset.ink === embInk);
+}
+for (const b of document.querySelectorAll("#exportInk button")) {
+  b.addEventListener("click", () => { embInk = b.dataset.ink; syncInk(); renderExportPlan(); });
+}
+syncInk();
+const inkFor = (target, color) => embInk === "black" && target === "EMBROIDERED" ? "#000000" : color;
+
 /* ---------- Slices ---------- */
 // The canopy is cut into five slices from where the cuts meet (1 = left tip ... 5 = right tip).
 // "Slices" pulls them apart, each on its own piece of linen; the export can take one slice at a time.
@@ -1517,7 +1535,7 @@ function exportPlan(s = state) {
       if (!rowInPart(w.id, exportPart)) continue;
       const t = exportTarget(s, l, w.id);
       if (!plan.has(t)) plan.set(t, []);
-      plan.get(t).push({ label: w.label, layer: l.name, color: s.swatches[w.id].color });
+      plan.get(t).push({ label: w.label, layer: l.name, color: inkFor(t, s.swatches[w.id].color) });
     }
   }
   return plan;
@@ -1563,7 +1581,8 @@ function exportSVG(s = state, part = exportPart) {
         : "Layers: EMBROIDERED (thread and ticks), PRINT (lettering, marks, grids, rings), CUT (holes and canopy edge). ")
       + (lb.lines === 2 ? `Labels: Arabic ${lb.ar}% + transliteration ${lb.lat}%, +${(lb.weight / 100).toFixed(2)}pt weight` : "Labels: all 4 lines")
       + (lb.font === "canva" ? ", new Arabic font." : ", Arabic from file.") + " Linen (not included): " + s.linen.color + "."
-      + (part === "whole" ? "" : ` Slice ${part} of 5 (1 = left tip, 5 = right tip), in place on the artboard; its outline is in CUT.`))}</desc>`,
+      + (part === "whole" ? "" : ` Slice ${part} of 5 (1 = left tip, 5 = right tip), in place on the artboard; its outline is in CUT.`)
+      + (embInk === "black" ? " Everything embroidered is drawn in black; the colorway's thread colors are in the tool." : ""))}</desc>`,
   ];
   const groupOut = (g, kind, swColor) => {
     if (g.style.display === "none") return "";
@@ -1591,12 +1610,13 @@ function exportSVG(s = state, part = exportPart) {
       const kids = [...swg.children].flatMap(c => c.hasAttribute("data-slice")
         ? (part === "whole" || c.getAttribute("data-slice") === String(part) ? [...c.children] : [])
         : (part === "whole" ? [c] : []));
-      const inner = kids.map(g => groupOut(g, kind, v.color)).join("");
-      if (!inner) continue;
       const target = exportTarget(s, l, id);
+      const color = inkFor(target, v.color);
+      const inner = kids.map(g => groupOut(g, kind, color)).join("");
+      if (!inner) continue;
       // merged layers carry each row's own layer opacity on the row
       const op = v.opacity / 100 * (s.exportMode === "file" ? 1 : ls.opacity / 100);
-      const paint = kind === "fill" ? `fill="${v.color}" stroke="none"` : `fill="none" stroke="${v.color}" stroke-miterlimit="10"`;
+      const paint = kind === "fill" ? `fill="${color}" stroke="none"` : `fill="none" stroke="${color}" stroke-miterlimit="10"`;
       if (!buckets.has(target)) buckets.set(target, { rows: [], opacity: s.exportMode === "file" ? ls.opacity : 100 });
       buckets.get(target).rows.push(`<g data-name="${XML(l.name)} / ${XML(labelOf[id])}" ${paint}${op < 1 ? ` opacity="${+op.toFixed(3)}"` : ""}>${inner}</g>`);
     }
