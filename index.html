@@ -522,6 +522,11 @@ input[type="range"].plain {
         <button type="button" role="radio" data-mode="embroidery">All embroidered</button>
         <button type="button" role="radio" data-mode="file">Same as master file</button>
       </div>
+      <h3 class="sub-title" id="sizeTitle">Size</h3>
+      <div class="seg" role="radiogroup" aria-labelledby="sizeTitle" id="exportSize">
+        <button type="button" role="radio" data-size="fabric">Fabric to scale (250 cm page)</button>
+        <button type="button" role="radio" data-size="master">Master artboard (120 in)</button>
+      </div>
       <h3 class="sub-title" id="inkTitle">Embroidery in the file</h3>
       <div class="seg" role="radiogroup" aria-labelledby="inkTitle" id="exportInk">
         <button type="button" role="radio" data-ink="black">Black</button>
@@ -541,7 +546,7 @@ input[type="range"].plain {
       </div>
       <div class="plan" id="exportPlan" aria-live="polite"></div>
       <div class="actions"><button type="button" class="btn primary" id="exportSvg" disabled>Download SVG</button></div>
-      <p class="note">A vector file for Illustrator or Rhino at full size, on the same 120 × 120 in artboard as <code>Fabric_Masterfile_v12.pdf</code>, so it lines up with your master file. With Embroidered + Print, the thread and triangle ticks go to EMBROIDERED (with the hole edges when they match the thread), the holes and the canopy edge stay in CUT so they're cut, not printed, and everything else visible goes to PRINT. Rows at 0% are left out. Current colors and label layout, true line widths. Hidden rows, the linen, the weave and the sun view are left out.</p>
+      <p class="note">A vector file for Illustrator or Rhino. "Fabric to scale" is the production size: a 250 × 250 cm page with the artwork at 164.69%, placed exactly as in Dina Barqawi's "Finalised Fabric to Scale" file so the two line up (line widths stay as drawn). "Master artboard" is the 120 × 120 in artboard of <code>Fabric_Masterfile_v12.pdf</code> at 100%. With Embroidered + Print, the thread and triangle ticks go to EMBROIDERED (with the hole edges when they match the thread), the holes and the canopy edge stay in CUT so they're cut, not printed, and everything else visible goes to PRINT. Rows at 0% are left out. Current colors and label layout, true line widths. Hidden rows, the linen, the weave and the sun view are left out.</p>
       <p class="note" id="exportStatus" role="status"></p>
     </section>
   </aside>
@@ -1421,6 +1426,21 @@ $("sunToggle").addEventListener("click", () => {
   render();
 });
 
+/* ---------- Size of the exported file ---------- */
+// Fabric to scale (asked for 2026-10-27): the production size, matched to Dina Barqawi's file
+// "20261026_Badriyah Finalised Fabric to Scale" (a 250 x 250 cm page; the artwork scaled 164.6864% and placed exactly
+// as in that file, so the two overlay; 40 of its 41 holes match the master's within 0.05 pt). Line widths and dashes
+// stay as drawn, as in hers. "Master artboard" is the master file's own 120 x 120 in artboard at 100%.
+const FABRIC = { scale: 1.646864, tx: -3704.36, ty: -3443.17, page: [7086.61, 7086.61] };
+let exportSize = "fabric";
+function syncSize() {
+  for (const b of document.querySelectorAll("#exportSize button")) b.setAttribute("aria-checked", b.dataset.size === exportSize);
+}
+for (const b of document.querySelectorAll("#exportSize button")) {
+  b.addEventListener("click", () => { exportSize = b.dataset.size; syncSize(); });
+}
+syncSize();
+
 /* ---------- Embroidery ink in the file ---------- */
 // Black by default (asked for 2026-10-27): white thread on a white page is unreadable in Illustrator, a PDF viewer
 // or embroidery software, so the file shows everything stitched in black. The colorway stays in the tool.
@@ -1568,14 +1588,22 @@ function renderExportPlan() {
 const KEEP_ATTRS = ["transform", "fill-opacity", "stroke-opacity", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset", "fill-rule"];
 function exportSVG(s = state, part = exportPart) {
   applyLabels(s.labels);
-  const U = 10, [ox, oy] = META.origin, [pw, ph] = META.page;
-  const shift = `translate(${(ox * U).toFixed(1)} ${(oy * U).toFixed(1)})`;
+  const U = 10, [ox, oy] = META.origin;
+  const fab = exportSize === "fabric", k = fab ? FABRIC.scale : 1;
+  const [pw, ph] = fab ? FABRIC.page : META.page;
+  // art units -> file units: scaled about the master's origin and placed as in the fabric file
+  const shift = fab
+    ? `matrix(${k} 0 0 ${k} ${(U * (k * ox + FABRIC.tx)).toFixed(2)} ${(U * (k * oy + FABRIC.ty)).toFixed(2)})`
+    : `translate(${(ox * U).toFixed(1)} ${(oy * U).toFixed(1)})`;
+  const unscale = v => +(v / k).toFixed(4);   // widths and dashes stay as drawn when the shapes are scaled
   const lb = s.labels;
   const out = [
     `<?xml version="1.0" encoding="UTF-8"?>`,
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}pt" height="${ph}pt" viewBox="0 0 ${pw * U} ${ph * U}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}pt" height="${ph}pt" viewBox="0 0 ${+(pw * U).toFixed(1)} ${+(ph * U).toFixed(1)}">`,
     `<title>SAT canopy fabric, ${part === "whole" ? "colorway export" : `slice ${part} of 5`}</title>`,
-    `<desc>${XML(`Exported from SAT Canopy Colorways. Same ${pw} x ${ph} pt artboard as Fabric_Masterfile_v12.pdf; units are 0.1 pt. `
+    `<desc>${XML(`Exported from SAT Canopy Colorways. `
+      + (fab ? `Fabric to scale: ${pw} x ${ph} pt (250 x 250 cm) page, the artwork at ${(k * 100).toFixed(4)}% of Fabric_Masterfile_v12.pdf, placed as in "20261026_Badriyah Finalised Fabric to Scale"; line widths as drawn; units are 0.1 pt. `
+             : `Same ${pw} x ${ph} pt artboard as Fabric_Masterfile_v12.pdf; units are 0.1 pt. `)
       + (s.exportMode === "file" ? "Layers as in the master file. "
         : s.exportMode === "embroidery" ? "Layers: EMBROIDERED (everything but the cuts), CUT (holes and canopy edge). "
         : "Layers: EMBROIDERED (thread and ticks), PRINT (lettering, marks, grids, rings), CUT (holes and canopy edge). ")
@@ -1587,11 +1615,16 @@ function exportSVG(s = state, part = exportPart) {
   const groupOut = (g, kind, swColor) => {
     if (g.style.display === "none") return "";
     let attrs = "";
-    for (const a of KEEP_ATTRS) if (g.hasAttribute(a)) attrs += ` ${a}="${XML(g.getAttribute(a))}"`;
+    for (const a of KEEP_ATTRS) {
+      if (!g.hasAttribute(a)) continue;
+      let v = g.getAttribute(a);
+      if (a === "stroke-dasharray" || a === "stroke-dashoffset") v = v.split(/[\s,]+/).map(n => unscale(+n)).join(" ");
+      attrs += ` ${a}="${XML(v)}"`;
+    }
     const w = /stroke-width:max\(([\d.]+)px/.exec(g.getAttribute("style") || "");
-    if (w) attrs += ` stroke-width="${w[1]}"`;               // true width, without the screen minimum
+    if (w) attrs += ` stroke-width="${unscale(+w[1])}"`;     // true width, without the screen minimum
     if (kind === "fill" && g.style.stroke && g.style.strokeWidth) { // label weight
-      attrs += ` stroke="${swColor}" stroke-width="${parseFloat(g.style.strokeWidth)}" stroke-linejoin="round"`;
+      attrs += ` stroke="${swColor}" stroke-width="${unscale(parseFloat(g.style.strokeWidth))}" stroke-linejoin="round"`;
     }
     const paths = [...g.querySelectorAll(":scope > path")].map(p =>
       `<path d="${p.getAttribute("d")}"${p.hasAttribute("fill-rule") ? ` fill-rule="${p.getAttribute("fill-rule")}"` : ""}/>`).join("");
